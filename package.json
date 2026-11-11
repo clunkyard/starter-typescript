@@ -3,12 +3,15 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "build": "node clunkyard.cjs build",
-    "doctor": "node clunkyard.cjs doctor",
-    "match": "node clunkyard.cjs match",
-    "replay": "node clunkyard.cjs replay"
+    "build": "npx --yes @clunkyard/cli@2 build",
+    "doctor": "npx --yes @clunkyard/cli@2 doctor",
+    "match": "npx --yes @clunkyard/cli@2 match",
+    "replay": "npx --yes @clunkyard/cli@2 replay"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "clunkyard": "npm:@clunkyard/sdk@2.0.0"
   }
 }
