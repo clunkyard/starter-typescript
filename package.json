@@ -3,10 +3,10 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "build": "npx --yes @clunkyard/cli@2 build",
-    "doctor": "npx --yes @clunkyard/cli@2 doctor",
-    "match": "npx --yes @clunkyard/cli@2 match",
-    "replay": "npx --yes @clunkyard/cli@2 replay"
+    "build": "npx --yes @clunkyard/cli build",
+    "doctor": "npx --yes @clunkyard/cli doctor",
+    "match": "npx --yes @clunkyard/cli match",
+    "replay": "npx --yes @clunkyard/cli replay"
   },
   "engines": {
     "node": ">=20"
