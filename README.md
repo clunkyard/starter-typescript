@@ -1,7 +1,7 @@
 # A Clunkyard robot in typescript
 
-Edit `bot.ts`, build, play a real local match and inspect its replay. Install [Node 20+ with npm](https://nodejs.org/en/download) and your language's normal compiler or interpreter.
-This language uses the portable Node/WebAssembly route.
+Edit `bot.ts`, build, play a local match and inspect its replay. Install [Node 20+ with npm](https://nodejs.org/en/download) and your language's compiler or interpreter.
+See the [supported platforms and toolchain installers](https://clunkyard.com/sdk/player-kit#supported-platforms).
 
 ```sh
 git clone https://github.com/clunkyard/starter-typescript.git
@@ -12,13 +12,11 @@ npx @clunkyard/cli match
 npx @clunkyard/cli replay
 ```
 
-If you use Make, the equivalent commands are `make doctor`, `make`, `make match` and `make replay`. The shared CLI downloads the checksum-pinned local engine and only this language's SDK through npm. Downloads, build output and temporary files stay in ignored `.clunkyard/`; the npm SDK is installed in ignored `node_modules/`. No account, Docker image, administrator access or all-language builder is needed.
+If you use Make, the equivalent commands are `make doctor`, `make`, `make match` and `make replay`. The CLI downloads the local match engine and your language's SDK. Downloads and build output stay in `.clunkyard/`.
 
-The ordinary npm dependency is `clunkyard@npm:@clunkyard/sdk@2.0.0`, pinned with its integrity in `package-lock.json`. Existing `require('clunkyard')` and `import ... from 'clunkyard'` source works locally and online. The first build runs `npm ci --ignore-scripts`; you can also run `npm ci` yourself. Keep both package files in Git. Use your installed TypeScript 6+ compiler; the CLI downloads no compiler.
+The project uses the npm SDK under the `clunkyard` import name, both locally and online. Keep `package.json` and `package-lock.json` in Git.
 
-
-
-The [language guide](https://clunkyard.com/sdk/javascript) lists the adapter, official language reference and toolchain prerequisites. `doctor` checks your existing installation without downloading a compiler. Compiler-sensitive native bindings rebuild with your own toolchain.
+The [language guide](https://clunkyard.com/sdk/javascript) covers the robot API and your toolchain. Use `doctor` to check your installation.
 
 ## Repeat a trial
 
@@ -29,11 +27,9 @@ npx @clunkyard/cli match 77 3d zero-g
 
 Keep a baseline commit. Repeat several seeds and rulesets; compare contacts, battery, aim, shots, hits and eliminations in the replay. Local trials run programs as your user. Use hosted trials to measure arena budgets before a tournament.
 
-The CLI packages SDK 2.0.0/protocol 2 asset identities from the immutable [v2.0.0-kit.5 release](https://github.com/clunkyard/game-kit/releases/tag/v2.0.0-kit.5). Run `npx @clunkyard/cli` for current tooling without copying scripts into your robot repository. SDK/engine caches are identified by their content hashes and remain reusable across CLI updates. Record the CLI version reported by `--version` with your source commit when comparing trials.
-
 ## Play online
 
-Create or copy a bot at [clunkyard.com](https://clunkyard.com). For Clunkyard's private Git remote, install `npm install --global @clunkyard/git@2.0.1`, run `clunkyard-git login` and follow the [private Git guide](https://clunkyard.com/sdk/private-git) to clone your bot. Copy tracked robot files into that private clone while keeping its own `.git` directory; do not import unrelated starter history or commit generated caches. An accepted push saves a revision and requests its hosted build.
+Create or copy a bot at [clunkyard.com](https://clunkyard.com). To work with its private Git repository, install `npm install --global @clunkyard/git`, run `clunkyard-git login` and follow the [private Git guide](https://clunkyard.com/sdk/private-git). Copy your robot files into the private clone, then push to save a revision and start a hosted build.
 
 You can also create your own GitHub repository from this template, connect it in My bots and select the repository/ref for build-on-push. [WebDAV](https://clunkyard.com/manual#local-development) is available for desktop editors. Save browser changes before syncing; resolve any source conflict before publishing.
 
