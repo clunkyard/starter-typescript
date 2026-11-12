@@ -89,7 +89,23 @@ class Starter extends cy.Robot {
       const climb = zone.shape === 'sphere' ? cy.angles.elevationTo(me.position, zone.center) : 0;
       this.drive.set({ throttle: 0.8, turn: cy.angles.clamp(cy.angles.angleDiff(bearing, me.heading) / 30), pitchTurn: cy.angles.clamp((climb - me.pitch) / 30) });
     }
+    // The arena's rate calibration only; safe to delete.
+    const work = this.raw.number('state.calibration.work');
+    if (work && Number.isInteger(work) && work > 0) this.status.set({ text: 'WORK', value: calibrationWork(work, this.clock.tick) });
   }
+}
+
+// The calibration kernel, xorshift-sqrt v1: work rounds of a 64-bit
+// xorshift, kept as two 32-bit halves, and a square-root sum.
+function calibrationWork(work: number, tick: number) {
+  let hi = 0x0139408d, lo = (0xcbbf7a44 ^ tick) >>> 0, sum = 0;
+  for (let i = 0; i < work; i++) {
+    hi = (hi ^ ((hi << 13) | (lo >>> 19))) >>> 0; lo = (lo ^ (lo << 13)) >>> 0;
+    lo = (lo ^ ((lo >>> 7) | (hi << 25))) >>> 0; hi = (hi ^ (hi >>> 7)) >>> 0;
+    hi = (hi ^ ((hi << 17) | (lo >>> 15))) >>> 0; lo = (lo ^ (lo << 17)) >>> 0;
+    sum += Math.sqrt(hi * 2097152 + (lo >>> 11));
+  }
+  return (Math.floor(sum) + (hi >>> 8)) % 1000000;
 }
 
 cy.run(new Starter());

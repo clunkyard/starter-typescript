@@ -12,6 +12,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "clunkyard": "npm:@clunkyard/sdk@2.0.0"
+    "clunkyard": "npm:@clunkyard/sdk@2.0.2"
   }
 }
