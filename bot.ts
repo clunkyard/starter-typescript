@@ -1,5 +1,6 @@
 // A robot on the Clunkyard core binding supplied by the arena.
-// It searches with a broad scan, follows precise contacts, and leads shots.
+// It searches with a broad scan, narrows the beam on a contact, and leads
+// shots from a line through its recent sightings.
 // Passive cues guide the search; they do not identify a target to fire at.
 // Clunkyard robot API 2.0.0: one core under every language, the same
 // answers everywhere. Facts (a call shows its arguments):
@@ -48,40 +49,95 @@ import * as cy from 'clunkyard';
 
 const steer = (towards: number, current: number) => cy.angles.clamp(cy.angles.angleDiff(towards, current) / 45);
 
+// Bearing is earned: a scan contact's bearing is off by up to its
+// bearingError (degrees, a fixed share of the arc), so a wide beam finds a
+// robot and a narrow one aims at it. Contacts within 120 units are exact.
+const SEARCH_ARC = 40;  // degrees: sweeps the circle in half a second
+const HOLD_WIDTH = 60;  // units across at the target: it stays in the beam from tick to tick
+const MIN_ARC = 6;      // degrees: the narrowest the beam holds
+const WINDOW = 12;      // ticks of sightings the aim averages
+const SIGHTINGS = 8;    // narrow sightings in the window before a shot
+const LOOK_EVERY = 40;  // ticks between looks around the target, for a nearer robot
+const REACQUIRE = 10;   // ticks to look again where a lost target was
+
 class Starter extends cy.Robot {
-  free = false; dodges = 0; dodgeEnd = 0;
+  free = false; dodges = 0; dodgeEnd = 0; slot = 0;
   onStart() { this.free = this.match.is3d && this.arena.gravity.z === 0; }
+
+  // A straight line through the narrowest of the last WINDOW ticks'
+  // sightings: where the robot is now and how fast it moves. Each sighting
+  // is off by its bearingError; the line averages that out.
+  fit(slot: number, tick: number): { position: cy.Vec3; velocity: cy.Vec3; count: number } | null {
+    const recent = this.tracker.history(slot).filter(s => s.tick > tick - WINDOW);
+    if (recent.length < 2) return null;
+    const best = Math.min(...recent.map(s => s.bearingError));
+    const seen = recent.filter(s => s.bearingError <= 1.5 * best), n = seen.length;
+    if (n < 2) return null;
+    const t0 = seen.reduce((sum, s) => sum + s.tick, 0) / n;
+    const spread = seen.reduce((sum, s) => sum + (s.tick - t0) ** 2, 0);
+    const position: cy.Vec3 = { x: 0, y: 0, z: 0 }, velocity: cy.Vec3 = { x: 0, y: 0, z: 0 };
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const mean = seen.reduce((sum, s) => sum + s.position[axis], 0) / n;
+      const slope = seen.reduce((sum, s) => sum + (s.tick - t0) * (s.position[axis] - mean), 0) / spread;
+      position[axis] = mean + slope * (tick - t0);
+      velocity[axis] = slope * this.match.tickRate;
+    }
+    return { position, velocity, count: n };
+  }
+
   onTurn() {
-    const me = this.me, gun = this.gun, scanner = this.scanner;
+    const me = this.me, gun = this.gun, scanner = this.scanner, tick = this.clock.tick;
     this.drive.forces({ brake: 0.2 });
     const target = this.sensors.nearest, cue = this.tracker.cue;
+    const lastSeen = this.slot ? this.tracker.lastSeen(this.slot) : null;
     if (target) {
+      this.slot = target.slot;
       const throttle = target.range > 350 ? 0.7 : target.range < 200 ? -0.4 : 0.2;
       this.drive.set({ throttle, turn: steer(target.bearing, me.heading), pitchTurn: steer(target.elevation, me.pitch) });
-      scanner.set({ heading: target.bearing, arc: 20, pitch: target.elevation });
-      // gun.lead is the intercept if the target holds course.
-      const power = gun.powerForFlightTime(target.range, 1), aim = gun.lead(target, power);
+      // Halve the beam each tick until it is HOLD_WIDTH across at the target:
+      // narrow enough for a precise bearing, wide enough to keep it in.
+      const hold = Math.max(MIN_ARC, 2 * Math.atan2(HOLD_WIDTH / 2, target.range) * 180 / Math.PI);
+      // In a crowd a narrow beam sees one robot. Every LOOK_EVERY ticks,
+      // widen it for a tick: a nearer robot it finds becomes the target.
+      const arc = tick % LOOK_EVERY === 0 ? SEARCH_ARC : Math.max(hold, Math.min(SEARCH_ARC, scanner.last.arc / 2));
+      scanner.set({ heading: target.bearing, arc, pitch: target.elevation });
+      const power = gun.powerForFlightTime(target.range, 1);
+      // An exact contact: gun.lead is the intercept if the target holds
+      // course. A noisy one: lead the fitted line, and fire only once it
+      // rests on enough sightings.
+      let aim: cy.Solution | null, ready = true;
+      if (target.bearingError > 0) {
+        const fit = this.fit(target.slot, tick);
+        aim = fit ? gun.leadPoint(fit.position, fit.velocity, power) : null;
+        ready = fit !== null && fit.count >= SIGHTINGS;
+      } else aim = gun.lead(target, power);
       const heading = aim ? aim.heading : target.bearing, pitch = aim ? aim.pitch : target.elevation;
       gun.aim({ heading, pitch });
       const now = gun.aimNow;
-      if (Math.abs(cy.angles.angleDiff(heading, now.heading)) < 3 && Math.abs(pitch - now.pitch) < 3 && gun.canFire(power, 10)) gun.fire({ power });
-      this.status.set({ text: 'TRACK', value: target.range });
+      if (ready && Math.abs(cy.angles.angleDiff(heading, now.heading)) < 3 && Math.abs(pitch - now.pitch) < 3 && gun.canFire(power, 10)) gun.fire({ power });
+      this.status.set({ text: ready ? 'TRACK' : 'NARROW', value: target.range });
+    } else if (lastSeen !== null && tick - lastSeen <= REACQUIRE) {
+      // Lost it: look again where it was last seen, widening the beam, before searching.
+      const where = this.tracker.position(this.slot) as cy.Vec3;
+      const bearing = cy.angles.bearingTo(me.position, where), elevation = this.free ? cy.angles.elevationTo(me.position, where) : 0;
+      this.drive.set({ throttle: 0.5, turn: steer(bearing, me.heading), pitchTurn: steer(elevation, me.pitch) });
+      scanner.set({ heading: bearing, arc: Math.min(SEARCH_ARC, scanner.last.arc * 2), pitch: elevation });
+      this.status.set({ text: 'REACQUIRE' });
     } else if (cue) {
       const bearing = cy.angles.bearingTo(me.position, cue.position), distance = cy.angles.distance(me.position, cue.position);
       const elevation = this.free ? cy.angles.elevationTo(me.position, cue.position) : 0;
-      const error = Math.min(cue.bearingError, 30), tick = this.clock.tick;
+      const error = Math.min(cue.bearingError, 30);
       const across = (tick % 5 - 2) / 2 * error, up = this.free ? (Math.floor(tick / 5) % 3 - 1) * error / 2 : 0;
       this.drive.set({ throttle: 0.7, turn: steer(bearing, me.heading), pitchTurn: steer(elevation, me.pitch) });
       scanner.set({ heading: bearing + across, arc: scanner.arcForReach(distance + 100), pitch: elevation + up });
       this.status.set({ text: 'CUE', value: distance });
     } else {
       this.drive.set({ throttle: 0.5, turn: 0.33, pitchTurn: steer(0, me.pitch) });
-      const pitch = this.free ? (Math.floor(this.clock.tick / 10) % 3 - 1) * 35 : 0;
-      scanner.set({ heading: cy.angles.normalize(scanner.last.heading + 36), arc: 40, pitch });
+      const pitch = this.free ? (Math.floor(tick / 10) % 3 - 1) * 35 : 0;
+      scanner.set({ heading: cy.angles.normalize(scanner.last.heading + 36), arc: SEARCH_ARC, pitch });
       this.status.set({ text: 'SEARCH' });
     }
     // A simple dodge: vary it, or predict the shooter.
-    const tick = this.clock.tick;
     if (tick >= this.dodgeEnd && this.sensors.cues.some(c => c.source === 'muzzle')) {
       this.dodges++;
       this.dodgeEnd = tick + 10;
