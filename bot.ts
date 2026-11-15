@@ -8,7 +8,8 @@
 // clock: tick seconds remaining_ticks
 // arena: size gravity terrain_kind ground_height(x y)
 // me: health position velocity heading pitch roll angular_velocity
-//   attitude grounded altitude applied
+//   attitude grounded altitude applied hull_mounts to_mount(heading pitch)
+//   from_mount(heading pitch) mount_toward(point)
 // battery: charge capacity regen sustainable_drive compute
 //   drive_cost(fraction)
 // drive: hover_lift
@@ -30,7 +31,8 @@
 // score: me best armour
 // angles: normalize(degrees) angle_diff(target current)
 //   bearing_to(from to) elevation_to(from to) direction(heading pitch)
-//   distance(a b) clamp(value low high)
+//   distance(a b) to_chassis(heading pitch attitude)
+//   from_chassis(heading pitch attitude) clamp(value low high)
 // raw: number(path) text(path) has(path) flag(path) count(path) line()
 // Controls: drive.set(throttle turn pitch_turn)
 //   drive.forces(thrust strafe lift yaw_torque pitch_torque roll_torque brake)
@@ -47,7 +49,7 @@ import * as cy from 'clunkyard';
 const steer = (towards: number, current: number) => cy.angles.clamp(cy.angles.angleDiff(towards, current) / 45);
 
 class Starter extends cy.Robot {
-  free = false;
+  free = false; dodges = 0; dodgeEnd = 0;
   onStart() { this.free = this.match.is3d && this.arena.gravity.z === 0; }
   onTurn() {
     const me = this.me, gun = this.gun, scanner = this.scanner;
@@ -57,6 +59,7 @@ class Starter extends cy.Robot {
       const throttle = target.range > 350 ? 0.7 : target.range < 200 ? -0.4 : 0.2;
       this.drive.set({ throttle, turn: steer(target.bearing, me.heading), pitchTurn: steer(target.elevation, me.pitch) });
       scanner.set({ heading: target.bearing, arc: 20, pitch: target.elevation });
+      // gun.lead is the intercept if the target holds course.
       const power = gun.powerForFlightTime(target.range, 1), aim = gun.lead(target, power);
       const heading = aim ? aim.heading : target.bearing, pitch = aim ? aim.pitch : target.elevation;
       gun.aim({ heading, pitch });
@@ -76,6 +79,19 @@ class Starter extends cy.Robot {
       const pitch = this.free ? (Math.floor(this.clock.tick / 10) % 3 - 1) * 35 : 0;
       scanner.set({ heading: cy.angles.normalize(scanner.last.heading + 36), arc: 40, pitch });
       this.status.set({ text: 'SEARCH' });
+    }
+    // A simple dodge: vary it, or predict the shooter.
+    const tick = this.clock.tick;
+    if (tick >= this.dodgeEnd && this.sensors.cues.some(c => c.source === 'muzzle')) {
+      this.dodges++;
+      this.dodgeEnd = tick + 10;
+    }
+    if (tick < this.dodgeEnd) {
+      // Off the line of fire: left, then right next time (turn and strafe are positive left and right).
+      const left = this.dodges % 2 === 1;
+      if (this.match.control === 'forces') { this.drive.set({ throttle: 0.5 }); this.drive.forces({ strafe: left ? -1 : 1 }); }
+      else this.drive.set({ throttle: 1, turn: left ? 1 : -1 });
+      this.status.set({ text: left ? 'dodge:left' : 'dodge:right', value: this.dodges });
     }
     if (this.battery.charge < this.battery.capacity / 4) this.drive.set({ throttle: Number(this.drive.get('throttle')) * 0.5 });
     const storm = this.nav.storm;
